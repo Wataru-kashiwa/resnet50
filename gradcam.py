@@ -16,6 +16,7 @@ from matplotlib import pyplot as plt
 from pprint import pprint
 
 #%%
+model_name = 'weight/resnet50_730.pth'
 class block(nn.Module):
     def __init__(self,in_channels,intermediate_channels,identity_downsample=None,stride=1):
         super(block,self).__init__()
@@ -112,7 +113,7 @@ model = Resnet50()
 class Mydataset(Dataset):
     def __init__(self,dataset_path):
         d_path = pathlib.Path(dataset_path)
-        self.img_path_list = list(d_path.glob("*.jpg"))
+        self.img_path_list = list(d_path.glob("*.tif"))
         random.shuffle(self.img_path_list)
         self.transforms = A.Compose([
 			A.Resize(256,340),
@@ -127,7 +128,7 @@ class Mydataset(Dataset):
     def __getitem__(self,idx):
         img = Image.open(self.img_path_list[idx])
         img = np.array(img)
-        stem = str(self.img_path_list[idx].parts[-3])
+        stem = str(self.img_path_list[idx].parts[-2])
         print(stem)
         label = float(self.label_list.index(stem))
         augmentated = self.transforms(image=img)["image"]
@@ -140,7 +141,7 @@ class Mydataset(Dataset):
 device = torch.device("cuda")
 model.to(device)
 
-model.load_state_dict(torch.load(r"D:\gradcam\0623_40_resize256_340_original_resnet50.pth"))
+model.load_state_dict(torch.load(model_name))
 import torch.nn.functional as F
 import matplotlib.cm as cm
 
@@ -237,15 +238,19 @@ def out_gradcam(gcam, raw_image, paper_cmap=False):
     alpha = gcam[..., None]
     gcam = alpha * cmap + (1 - alpha) * raw_image
   else:
-    gcam = (cmap.astype(np.float) + raw_image.astype(np.float)) / 2
+    gcam = (cmap.astype(np.float64) + raw_image.astype(np.float64)) / 2
 
   return np.uint8(gcam)
 #%%
 import os 
-
-dataset = Mydataset(r"D:\gradcam\gradcam\pan\19")
+import csv
+header = ['path','pred','label']
+data_name='ca'
+name = '_ca2'
+dataset = Mydataset('grad_val/{}'.format(data_name))
 print(len(dataset))
 g_dataloader = DataLoader(dataset,batch_size=1,shuffle=False)
+body = []
 for (data,label,path) in g_dataloader:
     #torch.cuda.empty_cache()
 
@@ -257,8 +262,11 @@ for (data,label,path) in g_dataloader:
 
     output = nn.Softmax(dim=1)(model(input_data))
     conf,pred = torch.max(output.data,1)
-
-
+    print(
+    "Output: {} \n Confidence: {} \n Predicted: {} \n Answer: {}".format(output, conf, pred, label)
+)
+    body.append([path,pred,label])
+    
     gcam = GradCAM(model=model)
     _ = gcam.forward(input_data)
     single_predicted = pred.view(1, pred.shape[0]).to(device)
@@ -271,24 +279,11 @@ for (data,label,path) in g_dataloader:
     (x,y) = (num%4,num//4)
     print(x,y)
     output = Image.fromarray(output)
-    output.save("./gradcam/gradpan/19/"+str(num)+".tif")
+    output.save("./grad_val/result/grad{}/".format(name)+str(num)+".tif")
 #%%
-#print(np.max(img_map),np.min(img_map))
-#%%
-#img_map = np.array(img_map,dtype=np.int)
-#fig,ax = plt.subplots(1,1)
-#plt.imshow(img_map)
+with open('grad_val/result/new_csv/{}.csv'.format(name),'w') as f:
+  writer = csv.writer(f)
+  writer.writerow(header)
+  writer.writerows(body)
 
-
-
-
-# %%
-#pprint(img_map.shape)
-# %%
-#pprint(model.layer4[2].conv3)
-# %%
-#regions = gcam.generate(model.layer4[2])
-#print(regions)
-# %%
-#print(model.layer4[2].named_modules())
-# %%
+f.close()
